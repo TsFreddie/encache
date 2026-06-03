@@ -175,6 +175,12 @@ func (f *CachedFile) ChunkComplete(index int) bool {
 	return f.chunks.Get(index)
 }
 
+func (f *CachedFile) Finalized() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.finalized
+}
+
 func (f *CachedFile) ReadAt(p []byte, offset int64) (int, error) {
 	return f.file.ReadAt(p, offset)
 }

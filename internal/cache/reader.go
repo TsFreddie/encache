@@ -120,10 +120,17 @@ func (r *rangeReader) loadCurrentChunk() error {
 
 func (r *rangeReader) ensureChunk(index int) error {
 	for {
-		r.startFillFromNextMissing(index)
-		pending := r.file.AwaitChunk(index)
-		if pending == nil {
+		if r.file.ChunkComplete(index) {
+			r.startFillFromNextMissing(index + 1)
 			return nil
+		}
+		pending, claimed := r.file.AwaitOrClaim(index)
+		if claimed {
+			fmt.Printf("[StreamCache] fill current mediaSource=%s chunk=%d\n", r.file.Source().MediaSourceID, index)
+			return r.fetchCurrentChunk(index, pending)
+		}
+		if pending == nil {
+			continue
 		}
 		select {
 		case <-r.ctx.Done():
@@ -138,6 +145,38 @@ func (r *rangeReader) ensureChunk(index int) error {
 			}
 			return pending.err
 		}
+	}
+}
+
+func (r *rangeReader) fetchCurrentChunk(index int, pending *chunkFetch) error {
+	r.fillMu.Lock()
+	if r.filling {
+		r.fillMu.Unlock()
+		filePending := r.file.AwaitChunk(index)
+		if filePending == pending {
+			select {
+			case <-r.ctx.Done():
+				return r.ctx.Err()
+			case <-pending.done:
+				return pending.err
+			}
+		}
+		return nil
+	}
+	r.filling = true
+	r.fillMu.Unlock()
+
+	go func() {
+		fetchFromChunk(r.ctx, r.file, index, pending, r.fetch)
+		r.fillMu.Lock()
+		r.filling = false
+		r.fillMu.Unlock()
+	}()
+	select {
+	case <-r.ctx.Done():
+		return r.ctx.Err()
+	case <-pending.done:
+		return pending.err
 	}
 }
 
@@ -180,12 +219,29 @@ func fetchSequential(ctx context.Context, file *CachedFile, startIndex int, firs
 			return err
 		}
 		if resumeIndex >= file.ChunkCount() {
-			return nil
+			if file.Finalized() {
+				return nil
+			}
+			var ok bool
+			nextIndex, nextPending, ok = file.ClaimNextMissingFrom(0)
+			if !ok {
+				return nil
+			}
+			fmt.Printf("[StreamCache] fill wrap mediaSource=%s fromChunk=%d\n", file.Source().MediaSourceID, nextIndex)
+			continue
 		}
 		var ok bool
 		nextIndex, nextPending, ok = file.ClaimNextMissingFrom(resumeIndex)
 		if !ok {
-			return nil
+			if file.Finalized() {
+				return nil
+			}
+			nextIndex, nextPending, ok = file.ClaimNextMissingFrom(0)
+			if !ok {
+				return nil
+			}
+			fmt.Printf("[StreamCache] fill wrap mediaSource=%s fromChunk=%d\n", file.Source().MediaSourceID, nextIndex)
+			continue
 		}
 		fmt.Printf("[StreamCache] fill gap mediaSource=%s fromChunk=%d afterChunk=%d\n", file.Source().MediaSourceID, nextIndex, resumeIndex-1)
 	}
