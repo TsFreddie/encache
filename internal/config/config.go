@@ -7,11 +7,12 @@ import (
 )
 
 type Config struct {
-	UpstreamURL *url.URL
-	Host        string
-	Port        int
-	StoragePath string
-	MaxSessions int
+	UpstreamURL    *url.URL
+	Host           string
+	Port           int
+	StoragePath    string
+	MaxSessions    int
+	EnableDownload bool
 }
 
 func Load() (Config, error) {
@@ -31,11 +32,12 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		UpstreamURL: upstreamURL,
-		Host:        getenv("HOST", "0.0.0.0"),
-		Port:        port,
-		StoragePath: getenv("STORAGE_PATH", "./storage"),
-		MaxSessions: maxSessions,
+		UpstreamURL:    upstreamURL,
+		Host:           getenv("HOST", "0.0.0.0"),
+		Port:           port,
+		StoragePath:    getenv("STORAGE_PATH", "./storage"),
+		MaxSessions:    maxSessions,
+		EnableDownload: os.Getenv("ENABLE_DOWNLOAD") == "1",
 	}, nil
 }
 

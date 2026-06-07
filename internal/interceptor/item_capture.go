@@ -16,7 +16,10 @@ import (
 	"github.com/fereidani/httpdecompressor"
 )
 
-var playbackInfoPath = regexp.MustCompile(`^/emby/Items/([0-9]+)/PlaybackInfo/?$`)
+var (
+	playbackInfoPath = regexp.MustCompile(`^/emby/Items/([0-9]+)/PlaybackInfo/?$`)
+	userItemPath     = regexp.MustCompile(`^/emby/Users/[^/]+/Items/([0-9]+)/?$`)
+)
 
 type ItemCapture struct {
 	Base
@@ -43,7 +46,10 @@ func (i ItemCapture) OnResponse(ctx *Context, response *http.Response) (*http.Re
 	}
 	matches := playbackInfoPath.FindStringSubmatch(ctx.Request.URL.Path)
 	if matches == nil {
-		return response, nil
+		matches = userItemPath.FindStringSubmatch(ctx.Request.URL.Path)
+		if matches == nil {
+			return response, nil
+		}
 	}
 	itemID := matches[1]
 	if !strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "application/json") {

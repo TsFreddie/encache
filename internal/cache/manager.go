@@ -20,6 +20,7 @@ type Manager struct {
 	StoragePath string
 	Client      *http.Client
 	UpstreamURL *url.URL
+	Gate        *DownloadGate
 
 	mu    sync.Mutex
 	files map[string]*openFile
@@ -42,6 +43,7 @@ func NewManager(storagePath string, upstreamURL *url.URL, store Store) *Manager 
 		StoragePath: storagePath,
 		Client:      http.DefaultClient,
 		UpstreamURL: upstreamURL,
+		Gate:        NewDownloadGate(),
 		files:       make(map[string]*openFile),
 	}
 }

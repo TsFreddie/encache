@@ -62,6 +62,7 @@ func (s StreamCache) OnRequest(ctx *Context) (*http.Response, bool, error) {
 		Request:     req,
 		UpstreamURL: upstreamURL,
 		Client:      s.Cache.Client,
+		Gate:        s.Cache.Gate,
 	})
 	if err != nil {
 		_ = handle.Close()

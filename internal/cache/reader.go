@@ -17,13 +17,17 @@ const fillProgressLogInterval = 5 * time.Second
 
 type SessionClass string
 
-const SessionActive SessionClass = "active"
+const (
+	SessionActive  SessionClass = "active"
+	SessionPassive SessionClass = "passive"
+)
 
 type FetchOptions struct {
 	Class       SessionClass
 	Request     *http.Request
 	UpstreamURL *url.URL
 	Client      *http.Client
+	Gate        *DownloadGate
 }
 
 type rangeReader struct {
@@ -57,6 +61,14 @@ func (f *CachedFile) ReadRange(ctx context.Context, start, end int64, fetch Fetc
 		f.ChunkCount(),
 	)
 	readCtx, cancel := context.WithCancel(ctx)
+	if fetch.Class == SessionActive && fetch.Gate != nil {
+		release := fetch.Gate.ActiveStarted()
+		baseCancel := cancel
+		cancel = func() {
+			release()
+			baseCancel()
+		}
+	}
 	return &rangeReader{
 		ctx:    readCtx,
 		file:   f,
@@ -211,6 +223,14 @@ func fetchFromChunk(ctx context.Context, file *CachedFile, startIndex int, first
 }
 
 func fetchSequential(ctx context.Context, file *CachedFile, startIndex int, firstPending *chunkFetch, options FetchOptions) error {
+	if options.Class == SessionPassive && options.Gate != nil {
+		release, err := options.Gate.WaitDownloadTurn(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
+
 	nextIndex := startIndex
 	nextPending := firstPending
 	for nextPending != nil {
@@ -297,6 +317,12 @@ func fetchSegment(ctx context.Context, file *CachedFile, startIndex int, firstPe
 				progress.HitCachedBlock(index)
 				progress.Done()
 				return index, nil
+			}
+		}
+		if options.Class == SessionPassive && options.Gate != nil {
+			if err := options.Gate.WaitDownloadResumed(ctx); err != nil {
+				file.CompleteFetch(index, pending, err)
+				return index, err
 			}
 		}
 

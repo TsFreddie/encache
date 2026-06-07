@@ -32,12 +32,16 @@ func main() {
 
 	cacheManager := cache.NewManager(cfg.StoragePath, cfg.UpstreamURL, store)
 	playbackEventLog := &interceptor.PlaybackEventLog{MaxSessions: cfg.MaxSessions}
-	chain := []interceptor.Interceptor{
+	chain := []interceptor.Interceptor{}
+	if cfg.EnableDownload {
+		chain = append(chain, interceptor.EnableDownload{Cache: cacheManager})
+	}
+	chain = append(chain,
 		interceptor.StreamCache{Cache: cacheManager},
 		playbackEventLog,
 		interceptor.ItemCapture{Store: store},
 		interceptor.Logger{},
-	}
+	)
 
 	handler := proxy.New(cfg.UpstreamURL, chain)
 	server := &http.Server{
