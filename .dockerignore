@@ -1,0 +1,7 @@
+.git
+.kilo
+storage
+tmp
+*.log
+Dockerfile
+.dockerignore
