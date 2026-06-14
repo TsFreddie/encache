@@ -31,7 +31,7 @@ type Proxy struct {
 
 func New(primaryURL *url.URL, interceptors []interceptor.Interceptor) *Proxy {
 	return &Proxy{
-		upstream:     upstream.New(primaryURL, nil, upstream.NewClient()),
+		upstream:     upstream.New(primaryURL, nil, upstream.NewClient(), 0),
 		interceptors: interceptors,
 	}
 }
@@ -51,14 +51,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isFallback := false
-	if p.upstream.Fallback != nil && strings.HasPrefix(r.URL.Path, "/fallback") {
-		isFallback = true
-		r.URL.Path = "/" + strings.TrimPrefix(r.URL.Path, "/fallback")
-		r.URL.Path = "/" + strings.TrimLeft(r.URL.Path, "/")
-	}
-
-	upstreamURL := p.upstream.BuildURL(r.URL, isFallback)
+	upstreamURL := p.upstream.BuildURL(r.URL, false)
 	ctx := &interceptor.Context{
 		Request:     r,
 		UpstreamURL: upstreamURL.String(),
@@ -71,9 +64,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !handled {
 		request := ctx.Request
-		upstreamURL = p.upstream.BuildURL(request.URL, isFallback)
+		upstreamURL = p.upstream.BuildURL(request.URL, false)
 		ctx.UpstreamURL = upstreamURL.String()
-		response, err = p.forward(request, isFallback)
+		response, err = p.forward(request, false)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return
@@ -114,35 +107,14 @@ func (p *Proxy) forward(r *http.Request, isFallback bool) (*http.Response, error
 			ContentLength: r.ContentLength,
 		})
 	}
-	resp, err := p.upstream.Do(r.Context(), &upstream.Request{
+	return p.upstream.Do(r.Context(), &upstream.Request{
 		Method:        r.Method,
 		URL:           r.URL,
 		Body:          r.Body,
 		GetBody:       r.GetBody,
 		Header:        r.Header,
 		ContentLength: r.ContentLength,
-		NoFallback:    true,
 	})
-	if err != nil && upstream.IsNetworkError(err) && p.upstream.Fallback != nil {
-		return p.fallbackRedirect(r, err), nil
-	}
-	return resp, err
-}
-
-func (p *Proxy) fallbackRedirect(r *http.Request, origErr error) *http.Response {
-	logging.Verbosef("[HTTP] upstream failed %s: %v — redirecting to /fallback\n", r.URL.String(), origErr)
-	redirectURL := "/fallback" + r.URL.Path
-	if r.URL.RawQuery != "" {
-		redirectURL += "?" + r.URL.RawQuery
-	}
-	header := make(http.Header)
-	header.Set("Location", redirectURL)
-	return &http.Response{
-		StatusCode: http.StatusTemporaryRedirect,
-		Header:     header,
-		Body:       http.NoBody,
-		Request:    r,
-	}
 }
 
 func (p *Proxy) writeResponse(w http.ResponseWriter, r *http.Request, response *http.Response) {

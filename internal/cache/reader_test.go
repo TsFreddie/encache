@@ -39,7 +39,7 @@ func TestFetchSegmentClearsFirstPendingOnEarlyFailure(t *testing.T) {
 		UpstreamURL: mustURL(t, "http://upstream/video.mkv"),
 		Upstream: upstream.New(mustURL(t, "http://upstream"), nil, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("upstream failed")
-		})}),
+		})}, 0),
 	})
 	if err == nil {
 		t.Fatal("expected fetch error")
@@ -75,7 +75,7 @@ func TestFetchSequentialWrapsToEarlierMissingChunkAndFinalizes(t *testing.T) {
 			default:
 				return nil, fmt.Errorf("unexpected range %s", req.Header.Get("Range"))
 			}
-		})}),
+		})}, 0),
 	})
 	if err != nil {
 		t.Fatalf("fetch sequential: %v", err)
@@ -106,7 +106,7 @@ func TestFetchSegmentCancelsBlockedBodyReadAndClearsPending(t *testing.T) {
 			UpstreamURL: mustURL(t, "http://upstream/video.mkv"),
 			Upstream: upstream.New(mustURL(t, "http://upstream"), nil, &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 				return partialResponseWithBody(req, 0, ChunkSize-1, ChunkSize, body), nil
-			})}),
+			})}, 0),
 		})
 		done <- err
 	}()
@@ -165,7 +165,7 @@ func TestActiveReadCanFetchCurrentChunkDuringReadahead(t *testing.T) {
 		Class:       SessionActive,
 		Request:     &http.Request{Method: http.MethodGet, Header: make(http.Header)},
 		UpstreamURL: mustURL(t, "http://upstream/video.mkv"),
-		Upstream:    upstream.New(mustURL(t, "http://upstream"), nil, client),
+		Upstream:    upstream.New(mustURL(t, "http://upstream"), nil, client, 0),
 	})
 	if err != nil {
 		t.Fatalf("read range: %v", err)

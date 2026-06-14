@@ -47,7 +47,7 @@ type Handle struct {
 	done   func() error
 }
 
-func NewManager(storagePath string, upstreamURL, fallbackUpstreamURL *url.URL, client *http.Client, store Store) *Manager {
+func NewManager(storagePath string, upstreamURL, fallbackUpstreamURL *url.URL, client *http.Client, store Store, fallbackDuration time.Duration) *Manager {
 	if client == nil {
 		client = upstream.NewClient()
 	}
@@ -56,7 +56,7 @@ func NewManager(storagePath string, upstreamURL, fallbackUpstreamURL *url.URL, c
 		StoragePath: storagePath,
 		Client:      client,
 		UpstreamURL: upstreamURL,
-		Upstream:    upstream.New(upstreamURL, fallbackUpstreamURL, client),
+		Upstream:    upstream.New(upstreamURL, fallbackUpstreamURL, client, fallbackDuration),
 		Gate:        NewDownloadGate(),
 		files:       make(map[string]*openFile),
 	}

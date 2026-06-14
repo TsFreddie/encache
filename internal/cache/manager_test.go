@@ -45,7 +45,7 @@ func TestOpenPreferredByItemIDUsesMediaSourceKey(t *testing.T) {
 	source := testMediaSource(ChunkSize)
 	source.MediaSourceID = "media-source-id"
 	store := &fakeManagerStore{source: source}
-	manager := NewManager(t.TempDir(), mustURL(t, "http://upstream"), nil, nil, store)
+	manager := NewManager(t.TempDir(), mustURL(t, "http://upstream"), nil, nil, store, 0)
 
 	first, err := manager.OpenPreferredByItemID(context.Background(), source.ItemID)
 	if err != nil {
@@ -72,7 +72,7 @@ func TestCleanupOldFilesDeletesOldFilesExceptOpenFiles(t *testing.T) {
 	storagePath := t.TempDir()
 	source := testMediaSource(ChunkSize)
 	store := &fakeManagerStore{source: source}
-	manager := NewManager(storagePath, mustURL(t, "http://upstream"), nil, nil, store)
+	manager := NewManager(storagePath, mustURL(t, "http://upstream"), nil, nil, store, 0)
 
 	handle, err := manager.Open(ctx, source.MediaSourceID)
 	if err != nil {
@@ -112,7 +112,7 @@ func TestOpenWaitsForCleanup(t *testing.T) {
 	storagePath := t.TempDir()
 	source := testMediaSource(ChunkSize)
 	store := &fakeManagerStore{source: source}
-	manager := NewManager(storagePath, mustURL(t, "http://upstream"), nil, nil, store)
+	manager := NewManager(storagePath, mustURL(t, "http://upstream"), nil, nil, store, 0)
 
 	manager.mu.Lock()
 	manager.cleanupDone = make(chan struct{})

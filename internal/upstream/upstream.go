@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -8,14 +9,19 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"encache/internal/logging"
 )
 
 type Upstream struct {
-	Primary  *url.URL
-	Fallback *url.URL
-	Client   *http.Client
+	Primary          *url.URL
+	Fallback         *url.URL
+	Client           *http.Client
+	stickyUntil      time.Time
+	stickyMu         sync.Mutex
+	fallbackDuration time.Duration
 }
 
 type Request struct {
@@ -26,20 +32,27 @@ type Request struct {
 	Header        http.Header
 	ContentLength int64
 	NoFallback    bool
+	cachedBody    []byte // buffered body for retry replay
 }
 
-func New(primary, fallback *url.URL, client *http.Client) *Upstream {
+func New(primary, fallback *url.URL, client *http.Client, fallbackDuration time.Duration) *Upstream {
 	if client == nil {
 		client = NewClient()
 	}
 	return &Upstream{
-		Primary:  primary,
-		Fallback: fallback,
-		Client:   client,
+		Primary:          primary,
+		Fallback:         fallback,
+		Client:           client,
+		fallbackDuration: fallbackDuration,
 	}
 }
 
 func (u *Upstream) Do(ctx context.Context, req *Request) (*http.Response, error) {
+	// Check sticky fallback before trying primary
+	if u.isFallbackSticky() {
+		logging.Verbosef("[Upstream] sticky fallback active, skipping primary\n")
+		return u.doWithBase(ctx, req, true)
+	}
 	return u.doWithBase(ctx, req, false)
 }
 
@@ -49,6 +62,26 @@ func (u *Upstream) DoFallback(ctx context.Context, req *Request) (*http.Response
 
 func IsNetworkError(err error) bool {
 	return isNetworkError(err)
+}
+
+// MarkFallback records that fallback succeeded; primary won't be used for
+// fallbackDuration from now.
+func (u *Upstream) MarkFallback() {
+	u.stickyMu.Lock()
+	defer u.stickyMu.Unlock()
+	u.stickyUntil = time.Now().Add(u.fallbackDuration)
+	logging.Verbosef("[Upstream] marked sticky fallback until %s (duration=%s)\n",
+		u.stickyUntil.Format(time.RFC3339Nano), u.fallbackDuration)
+}
+
+// isFallbackSticky returns true if primary should be skipped in favor of fallback.
+func (u *Upstream) isFallbackSticky() bool {
+	if u.Fallback == nil || u.fallbackDuration <= 0 {
+		return false
+	}
+	u.stickyMu.Lock()
+	defer u.stickyMu.Unlock()
+	return time.Now().Before(u.stickyUntil)
 }
 
 func (u *Upstream) doWithBase(ctx context.Context, req *Request, isFallback bool) (*http.Response, error) {
@@ -66,10 +99,13 @@ func (u *Upstream) doWithBase(ctx context.Context, req *Request, isFallback bool
 		requestURL = u.buildURL(base, req.URL)
 	}
 
-	var body io.ReadCloser
+	var body io.Reader
 	if isFallback {
 		if req.GetBody != nil {
-			body, _ = req.GetBody()
+			rc, _ := req.GetBody()
+			body = rc
+		} else if req.cachedBody != nil {
+			body = bytes.NewReader(req.cachedBody)
 		} else {
 			body = req.Body
 		}
@@ -79,6 +115,20 @@ func (u *Upstream) doWithBase(ctx context.Context, req *Request, isFallback bool
 			if freshBody, bodyErr := req.GetBody(); bodyErr == nil {
 				body = freshBody
 			}
+		}
+		// Buffer body before first send so fallback retry can replay it.
+		// Only buffer if fallback is available and not disabled.
+		if body != nil && u.Fallback != nil && !req.NoFallback && req.cachedBody == nil {
+			var buf bytes.Buffer
+			_, readErr := io.Copy(&buf, body.(io.Reader))
+			if closer, ok := body.(io.Closer); ok {
+				closer.Close()
+			}
+			if readErr != nil {
+				return nil, readErr
+			}
+			req.cachedBody = buf.Bytes()
+			body = bytes.NewReader(req.cachedBody)
 		}
 	}
 	request, err := http.NewRequestWithContext(ctx, req.Method, requestURL.String(), body)
@@ -100,6 +150,7 @@ func (u *Upstream) doWithBase(ctx context.Context, req *Request, isFallback bool
 				return nil, fbErr
 			}
 			logging.Verbosef("[Upstream] fallback succeeded %s\n", request.URL.String())
+			u.MarkFallback()
 			return resp, nil
 		}
 		return nil, err

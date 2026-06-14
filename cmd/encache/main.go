@@ -32,8 +32,8 @@ func main() {
 	defer store.Close()
 
 	upstreamClient := upstream.NewClient()
-	sharedUpstream := upstream.New(cfg.UpstreamURL, cfg.FallbackUpstreamURL, upstreamClient)
-	cacheManager := cache.NewManager(cfg.StoragePath, cfg.UpstreamURL, cfg.FallbackUpstreamURL, upstreamClient, store)
+	sharedUpstream := upstream.New(cfg.UpstreamURL, cfg.FallbackUpstreamURL, upstreamClient, cfg.FallbackDuration)
+	cacheManager := cache.NewManager(cfg.StoragePath, cfg.UpstreamURL, cfg.FallbackUpstreamURL, upstreamClient, store, cfg.FallbackDuration)
 	cacheManager.StartDailyCleanup(context.Background(), cfg.CleanupDays)
 	cacheManager.Upstream = sharedUpstream
 	playbackEventLog := &interceptor.PlaybackEventLog{MaxSessions: cfg.MaxSessions}
