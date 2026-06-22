@@ -97,14 +97,14 @@ INSERT OR IGNORE INTO media_sources (
 	return rows > 0, nil
 }
 
-func (s *Store) UpsertMediaSource(ctx context.Context, source MediaSource) (bool, error) {
+func (s *Store) UpsertMediaSource(ctx context.Context, source MediaSource) (affected bool, updated bool, oldItemName string, oldSourceName string, oldContainer string, err error) {
 	if !validMediaSource(source) {
-		return false, nil
+		return false, false, "", "", "", nil
 	}
 
 	var itemName, sourceName, container string
 	var size, bitrate int64
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 SELECT item_name, source_name, size, container, bitrate
 FROM media_sources
 WHERE media_source_id = ?
@@ -116,7 +116,7 @@ WHERE media_source_id = ?
 			size == source.Size &&
 			container == source.Container &&
 			bitrate == source.Bitrate {
-			return false, nil
+			return false, false, "", "", "", nil
 		}
 		result, err := s.db.ExecContext(ctx, `
 UPDATE media_sources
@@ -124,14 +124,14 @@ SET item_name = ?, source_name = ?, size = ?, container = ?, bitrate = ?, update
 WHERE media_source_id = ?
 `, source.ItemName, source.SourceName, source.Size, source.Container, source.Bitrate, source.MediaSourceID)
 		if err != nil {
-			return false, err
+			return false, false, "", "", "", err
 		}
 		rows, _ := result.RowsAffected()
-		return rows > 0, nil
+		return rows > 0, true, itemName, sourceName, container, nil
 	}
 
 	if err != sql.ErrNoRows {
-		return false, err
+		return false, false, "", "", "", err
 	}
 
 	result, err := s.db.ExecContext(ctx, `
@@ -146,10 +146,10 @@ INSERT INTO media_sources (
 ) VALUES (?, ?, ?, ?, ?, ?, ?)
 `, source.MediaSourceID, source.ItemID, source.ItemName, source.SourceName, source.Size, source.Container, source.Bitrate)
 	if err != nil {
-		return false, err
+		return false, false, "", "", "", err
 	}
 	rows, _ := result.RowsAffected()
-	return rows > 0, nil
+	return rows > 0, false, "", "", "", nil
 }
 
 func (s *Store) GetMediaSource(ctx context.Context, mediaSourceID string) (MediaSource, bool, error) {

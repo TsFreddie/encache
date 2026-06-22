@@ -44,7 +44,7 @@ func main() {
 	chain = append(chain,
 		interceptor.StreamCache{Cache: cacheManager},
 		playbackEventLog,
-		interceptor.ItemCapture{Store: store},
+		interceptor.ItemCapture{Store: store, StoragePath: cfg.StoragePath},
 		interceptor.Logger{},
 	)
 

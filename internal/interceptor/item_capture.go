@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,7 +26,8 @@ var (
 
 type ItemCapture struct {
 	Base
-	Store *store.Store
+	Store       *store.Store
+	StoragePath string
 }
 
 type embyItem struct {
@@ -59,24 +61,26 @@ func (i ItemCapture) OnResponse(ctx *Context, response *http.Response) (*http.Re
 	}
 
 	response.Body = &teeCaptureCloser{
-		rc:       response.Body,
-		store:    i.Store,
-		itemID:   itemID,
-		encoding: response.Header.Get("Content-Encoding"),
-		path:     ctx.Request.URL.Path,
+		rc:          response.Body,
+		store:       i.Store,
+		storagePath: i.StoragePath,
+		itemID:      itemID,
+		encoding:    response.Header.Get("Content-Encoding"),
+		path:        ctx.Request.URL.Path,
 	}
 
 	return response, nil
 }
 
 type teeCaptureCloser struct {
-	rc       io.ReadCloser
-	buf      bytes.Buffer
-	store    *store.Store
-	itemID   string
-	encoding string
-	path     string
-	once     sync.Once
+	rc          io.ReadCloser
+	buf         bytes.Buffer
+	store       *store.Store
+	storagePath string
+	itemID      string
+	encoding    string
+	path        string
+	once        sync.Once
 }
 
 func (t *teeCaptureCloser) Read(p []byte) (int, error) {
@@ -113,7 +117,7 @@ func (t *teeCaptureCloser) process() {
 		inserted := 0
 		for _, mediaSource := range item.MediaSources {
 			mediaItemID := mediaSourceItemID(mediaSource, t.itemID)
-			ok, err := t.store.UpsertMediaSource(context.Background(), store.MediaSource{
+			affected, updated, oldItemName, oldSourceName, oldContainer, err := t.store.UpsertMediaSource(context.Background(), store.MediaSource{
 				MediaSourceID: mediaSource.ID,
 				ItemID:        mediaItemID,
 				ItemName:      store.SanitizeFilename(mediaSourceItemName(mediaSource, mediaItemID)),
@@ -126,8 +130,15 @@ func (t *teeCaptureCloser) process() {
 				fmt.Printf("[ItemCapture] insert error item=%s: %v\n", t.itemID, err)
 				return
 			}
-			if ok {
+			if affected {
 				inserted++
+			}
+			if updated {
+				deleted := t.deleteCachedFiles(oldItemName, oldSourceName, oldContainer)
+				fmt.Printf(
+					"[ItemCapture] updated item=%s mediaSource=%s oldItemName=%q oldSourceName=%q cached_deleted=%v\n",
+					t.itemID, mediaSource.ID, oldItemName, oldSourceName, deleted,
+				)
 			}
 		}
 
@@ -177,6 +188,26 @@ func decodeBodyForInspection(body []byte, contentEncoding string) ([]byte, error
 	}
 	defer reader.Close()
 	return io.ReadAll(reader)
+}
+
+func (t *teeCaptureCloser) deleteCachedFiles(itemName, sourceName, container string) bool {
+	if t.storagePath == "" || itemName == "" || sourceName == "" || container == "" {
+		return false
+	}
+	dir := filepath.Join(t.storagePath, itemName)
+	cachePath := filepath.Join(dir, sourceName+"."+container)
+	progressPath := cachePath + ".progress"
+
+	deleted := false
+	for _, p := range []string{cachePath, progressPath} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("[ItemCapture] delete cached file %q: %v\n", p, err)
+		} else if err == nil {
+			fmt.Printf("[ItemCapture] deleted old cached file %q\n", p)
+			deleted = true
+		}
+	}
+	return deleted
 }
 
 func logInterceptedMediaSources(path string, mediaSources []embyMediaSource) {
