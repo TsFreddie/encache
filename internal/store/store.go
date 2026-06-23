@@ -17,7 +17,6 @@ type MediaSource struct {
 	MediaSourceID string
 	ItemID        string
 	ItemName      string
-	SourceName    string
 	Size          int64
 	Container     string
 	Bitrate       int64
@@ -56,7 +55,6 @@ CREATE TABLE IF NOT EXISTS media_sources (
   media_source_id TEXT NOT NULL PRIMARY KEY,
   item_id TEXT NOT NULL,
   item_name TEXT NOT NULL,
-  source_name TEXT NOT NULL,
   size INTEGER NOT NULL,
   container TEXT NOT NULL,
   bitrate INTEGER NOT NULL,
@@ -67,7 +65,10 @@ CREATE TABLE IF NOT EXISTS media_sources (
 
 CREATE INDEX IF NOT EXISTS media_sources_item_id_idx ON media_sources (item_id);
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) InsertMediaSource(ctx context.Context, source MediaSource) (bool, error) {
@@ -80,12 +81,11 @@ INSERT OR IGNORE INTO media_sources (
   media_source_id,
   item_id,
   item_name,
-  source_name,
   size,
   container,
   bitrate
-) VALUES (?, ?, ?, ?, ?, ?, ?)
-`, source.MediaSourceID, source.ItemID, source.ItemName, source.SourceName, source.Size, source.Container, source.Bitrate)
+) VALUES (?, ?, ?, ?, ?, ?)
+`, source.MediaSourceID, source.ItemID, source.ItemName, source.Size, source.Container, source.Bitrate)
 	if err != nil {
 		return false, err
 	}
@@ -102,17 +102,16 @@ func (s *Store) UpsertMediaSource(ctx context.Context, source MediaSource) (affe
 		return false, false, "", "", "", nil
 	}
 
-	var itemName, sourceName, container string
+	var itemName, container string
 	var size, bitrate int64
 	err = s.db.QueryRowContext(ctx, `
-SELECT item_name, source_name, size, container, bitrate
+SELECT item_name, size, container, bitrate
 FROM media_sources
 WHERE media_source_id = ?
-`, source.MediaSourceID).Scan(&itemName, &sourceName, &size, &container, &bitrate)
+`, source.MediaSourceID).Scan(&itemName, &size, &container, &bitrate)
 
 	if err == nil {
 		if itemName == source.ItemName &&
-			sourceName == source.SourceName &&
 			size == source.Size &&
 			container == source.Container &&
 			bitrate == source.Bitrate {
@@ -120,14 +119,14 @@ WHERE media_source_id = ?
 		}
 		result, err := s.db.ExecContext(ctx, `
 UPDATE media_sources
-SET item_name = ?, source_name = ?, size = ?, container = ?, bitrate = ?, updated_at = CURRENT_TIMESTAMP
+SET item_name = ?, size = ?, container = ?, bitrate = ?, updated_at = CURRENT_TIMESTAMP
 WHERE media_source_id = ?
-`, source.ItemName, source.SourceName, source.Size, source.Container, source.Bitrate, source.MediaSourceID)
+`, source.ItemName, source.Size, source.Container, source.Bitrate, source.MediaSourceID)
 		if err != nil {
 			return false, false, "", "", "", err
 		}
 		rows, _ := result.RowsAffected()
-		return rows > 0, true, itemName, sourceName, container, nil
+		return rows > 0, true, itemName, source.MediaSourceID, container, nil
 	}
 
 	if err != sql.ErrNoRows {
@@ -139,12 +138,11 @@ INSERT INTO media_sources (
   media_source_id,
   item_id,
   item_name,
-  source_name,
   size,
   container,
   bitrate
-) VALUES (?, ?, ?, ?, ?, ?, ?)
-`, source.MediaSourceID, source.ItemID, source.ItemName, source.SourceName, source.Size, source.Container, source.Bitrate)
+) VALUES (?, ?, ?, ?, ?, ?)
+`, source.MediaSourceID, source.ItemID, source.ItemName, source.Size, source.Container, source.Bitrate)
 	if err != nil {
 		return false, false, "", "", "", err
 	}
@@ -155,14 +153,13 @@ INSERT INTO media_sources (
 func (s *Store) GetMediaSource(ctx context.Context, mediaSourceID string) (MediaSource, bool, error) {
 	var source MediaSource
 	err := s.db.QueryRowContext(ctx, `
-SELECT media_source_id, item_id, item_name, source_name, size, container, bitrate, chunks, created_at, updated_at
+SELECT media_source_id, item_id, item_name, size, container, bitrate, chunks, created_at, updated_at
 FROM media_sources
 WHERE media_source_id = ?
 `, mediaSourceID).Scan(
 		&source.MediaSourceID,
 		&source.ItemID,
 		&source.ItemName,
-		&source.SourceName,
 		&source.Size,
 		&source.Container,
 		&source.Bitrate,
@@ -182,7 +179,7 @@ WHERE media_source_id = ?
 func (s *Store) GetPreferredMediaSourceByItemID(ctx context.Context, itemID string) (MediaSource, bool, error) {
 	var source MediaSource
 	err := s.db.QueryRowContext(ctx, `
-SELECT media_source_id, item_id, item_name, source_name, size, container, bitrate, chunks, created_at, updated_at
+SELECT media_source_id, item_id, item_name, size, container, bitrate, chunks, created_at, updated_at
 FROM media_sources
 WHERE item_id = ?
 ORDER BY bitrate DESC, size DESC
@@ -191,7 +188,6 @@ LIMIT 1
 		&source.MediaSourceID,
 		&source.ItemID,
 		&source.ItemName,
-		&source.SourceName,
 		&source.Size,
 		&source.Container,
 		&source.Bitrate,
@@ -218,7 +214,7 @@ WHERE media_source_id = ?
 }
 
 func validMediaSource(source MediaSource) bool {
-	if source.MediaSourceID == "" || source.ItemID == "" || source.ItemName == "" || source.SourceName == "" {
+	if source.MediaSourceID == "" || source.ItemID == "" || source.ItemName == "" {
 		return false
 	}
 	if source.Size <= 0 || source.Bitrate < 0 || source.Container == "" {

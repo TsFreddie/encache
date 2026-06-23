@@ -45,7 +45,7 @@ func TestOpenCachedFileUsesFinalFileAsComplete(t *testing.T) {
 	if err := os.MkdirAll(itemDir, 0o755); err != nil {
 		t.Fatalf("mkdir item dir: %v", err)
 	}
-	finalPath := filepath.Join(itemDir, source.SourceName+"."+source.Container)
+	finalPath := filepath.Join(itemDir, source.MediaSourceID+"."+source.Container)
 	if err := os.WriteFile(finalPath, make([]byte, source.Size), 0o644); err != nil {
 		t.Fatalf("write final file: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestOpenCachedFileResumesValidProgress(t *testing.T) {
 	if err := os.MkdirAll(itemDir, 0o755); err != nil {
 		t.Fatalf("mkdir item dir: %v", err)
 	}
-	progressPath := filepath.Join(itemDir, source.SourceName+"."+source.Container+".progress")
+	progressPath := filepath.Join(itemDir, source.MediaSourceID+"."+source.Container+".progress")
 	if err := os.WriteFile(progressPath, make([]byte, source.Size), 0o644); err != nil {
 		t.Fatalf("write progress file: %v", err)
 	}
@@ -99,7 +99,6 @@ func testMediaSource(size int64) store.MediaSource {
 		MediaSourceID: "media-source",
 		ItemID:        "item",
 		ItemName:      "item-name",
-		SourceName:    "source-name",
 		Size:          size,
 		Container:     "mkv",
 		Bitrate:       1,

@@ -45,7 +45,7 @@ func OpenCachedFile(ctx context.Context, storagePath string, source store.MediaS
 		return nil, err
 	}
 
-	path := filepath.Join(dir, source.SourceName+"."+source.Container)
+	path := filepath.Join(dir, source.MediaSourceID+"."+source.Container)
 	progressPath := path + ".progress"
 	chunkCount := chunkCount(source.Size)
 

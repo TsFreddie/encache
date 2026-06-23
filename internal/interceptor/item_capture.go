@@ -121,7 +121,6 @@ func (t *teeCaptureCloser) process() {
 				MediaSourceID: mediaSource.ID,
 				ItemID:        mediaItemID,
 				ItemName:      store.SanitizeFilename(mediaSourceItemName(mediaSource, mediaItemID)),
-				SourceName:    store.SanitizeFilename(mediaSourceName(mediaSource)),
 				Size:          mediaSource.Size,
 				Container:     mediaSource.Container,
 				Bitrate:       mediaSource.Bitrate,
@@ -166,16 +165,6 @@ func mediaSourceItemName(mediaSource embyMediaSource, fallback string) string {
 		}
 	}
 	return fallback
-}
-
-func mediaSourceName(mediaSource embyMediaSource) string {
-	if mediaSource.Name != "" {
-		return mediaSource.Name
-	}
-	if mediaSource.Path != "" {
-		return mediaSource.Path
-	}
-	return mediaSource.ID
 }
 
 func decodeBodyForInspection(body []byte, contentEncoding string) ([]byte, error) {
